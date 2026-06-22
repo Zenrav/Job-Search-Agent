@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  # 1. Your Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: mcp-postgres
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_secure_password
+      POSTGRES_DB: agent_dashboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. Your Cache / Queue
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+# 3. Persistent Storage
+volumes:
+  postgres_data:
+  redis_data:

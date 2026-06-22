@@ -1,0 +1,11 @@
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Docker persistent data (so you don't commit your actual database)
+postgres_data/
+redis_data/
+
+# Environment secrets/keys
+.env
