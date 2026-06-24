@@ -1,13 +1,15 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Any, Dict, Optional, List
-import fitz
+import fitz  # PyMuPDF
 from uuid import UUID
 import psycopg2
 from psycopg2.extras import register_uuid, Json
-register_uuid()
-from psycopg2.extras import Json
 import os
+import httpx
+
+# Register UUID adapter for psycopg2
+register_uuid()
 
 app = FastAPI(
     title="Resume Parser & Storage API",
@@ -15,7 +17,11 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Database Configuration (matches your local environment / Docker bridge)
+# --- CONFIGURATION ---
+# By default, this points to the MOCK endpoint running on your local FastAPI server.
+# When your friend is ready, change this to their URL (e.g., "http://their-ip:8001/parse")
+AGENT_API_URL = os.getenv("AGENT_API_URL", "http://127.0.0.1:8000/mock-agent")
+
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "job_search_db"),
     "user": os.getenv("DB_USER", "postgres_admin"),
@@ -25,34 +31,79 @@ DB_CONFIG = {
 }
 
 def get_db_connection():
-    """Returns a raw connection object."""
-    return psycopg2.connect(**DB_CONFIG)
+    """Returns a raw database connection object."""
+    try:
+        return psycopg2.connect(**DB_CONFIG)
+    except psycopg2.OperationalError as e:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 # --- PYDANTIC SCHEMAS ---
-# Enforces exact structure matching your modified 'resumes' table
 class AgentCallbackPayload(BaseModel):
     resume_id: UUID
     experience: List[Dict[str, Any]]
     skills: Dict[str, Any]
     education: List[Dict[str, Any]]
-    preferences: Optional[Dict[str, Any]] = None # Kept this since it wasn't explicitly removed
+    preferences: Optional[Dict[str, Any]] = None
+
+class AgentRequestPayload(BaseModel):
+    text: str
 
 @app.get("/")
 def read_root():
     return {"message": "Resume Parser Pipeline Running"}
 
-# --- STEP 1: UPLOAD & PDF EXTRACT ---
+
+# --- TEMPORARY MOCK AGENT FOR TESTING ---
+@app.post("/mock-agent")
+async def mock_agent_parser(payload: AgentRequestPayload):
+    """
+    This simulates your friend's Agent API. 
+    It receives the text and returns a structured JSON payload.
+    """
+    # Print the first 100 characters to the console to prove we received it
+    print(f"Mock Agent received text: {payload.text[:100]}...") 
+    
+    # Return Dummy Data matching your database schema
+    return {
+        "experience": [
+            {
+                "company": "Tech Corp",
+                "role": "Software Engineer",
+                "years": "2021-2023",
+                "highlights": ["Built Python APIs", "Optimized PostgreSQL queries"]
+            }
+        ],
+        "skills": {
+            "languages": ["Python", "JavaScript", "SQL"],
+            "frameworks": ["FastAPI", "React"]
+        },
+        "education": [
+            {
+                "institution": "State University",
+                "degree": "B.S. Computer Science",
+                "grad_year": 2021
+            }
+        ],
+        "preferences": {
+            "remote": True,
+            "target_salary": 95000
+        }
+    }
+
+
+# --- MAIN PIPELINE: UPLOAD, EXTRACT, CALL AGENT, & SAVE ---
 @app.post("/resumes/upload")
 async def upload_and_extract_resume(user_id: UUID, file: UploadFile = File(...)):
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Invalid file type. Only PDFs are allowed.")
     
     try:
+        # 1. Extract raw text from PDF
         pdf_data = await file.read()
         doc = fitz.open(stream=pdf_data, filetype="pdf")
         raw_text = "".join([page.get_text() for page in doc])
         
-        # FIX: Open connection and cursor cleanly using 'with'
+        # 2. Insert initial placeholder into database
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
                 # Verify user exists
@@ -60,7 +111,7 @@ async def upload_and_extract_resume(user_id: UUID, file: UploadFile = File(...))
                 if not cursor.fetchone():
                     raise HTTPException(status_code=400, detail=f"User ID '{user_id}' does not exist.")
                 
-                # Insert tracking placeholder
+                # Insert Resume tracking row
                 cursor.execute(
                     """
                     INSERT INTO resumes (user_id, filename)
@@ -72,33 +123,26 @@ async def upload_and_extract_resume(user_id: UUID, file: UploadFile = File(...))
                 db_row = cursor.fetchone()
                 new_resume_id = db_row[0]
                 uploaded_at = db_row[1]
-        
-        return {
-            "resume_id": str(new_resume_id),
-            "filename": file.filename,
-            "uploaded_at": uploaded_at,
-            "extracted_text": raw_text
-        }
-        
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database execution failure: {str(e)}")
+            conn.commit() # Commit the insert so it's saved
 
-# --- STEP 2: AGENT CALLBACK WEBHOOK ---
-@app.post("/resumes/agent-callback")
-async def agent_callback(payload: AgentCallbackPayload):
-    try:
-        # Open connection and cursor safely using context managers
+        # 3. Call the Agent API (Currently hits the /mock-agent endpoint)
+        async with httpx.AsyncClient() as client:
+            try:
+                agent_response = await client.post(
+                    AGENT_API_URL,
+                    json={"text": raw_text},
+                    timeout=30.0
+                )
+                agent_response.raise_for_status()
+                agent_data = agent_response.json()
+            except httpx.HTTPStatusError as e:
+                raise HTTPException(status_code=502, detail=f"Agent API error: {e.response.text}")
+            except httpx.RequestError as e:
+                raise HTTPException(status_code=503, detail=f"Agent API unreachable: {str(e)}")
+
+        # 4. Unpack the JSON and update database
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
-                
-                # Check if record exists
-                cursor.execute("SELECT id FROM resumes WHERE id = %s;", (payload.resume_id,))
-                if not cursor.fetchone():
-                    raise HTTPException(status_code=404, detail=f"resume_id '{payload.resume_id}' not found.")
-                
-                # Update table payload
                 cursor.execute(
                     """
                     UPDATE resumes 
@@ -110,23 +154,59 @@ async def agent_callback(payload: AgentCallbackPayload):
                     WHERE id = %s;
                     """,
                     (
-                        Json(payload.experience),
-                        Json(payload.skills),
-                        Json(payload.education),
-                        Json(payload.preferences) if payload.preferences else None,
-                        payload.resume_id
+                        Json(agent_data.get("experience", [])),
+                        Json(agent_data.get("skills", {})),
+                        Json(agent_data.get("education", [])),
+                        Json(agent_data.get("preferences", {})),
+                        new_resume_id
                     )
                 )
-        
+            conn.commit() # Commit the update
+
         return {
-            "status": "success",
-            "message": f"Successfully updated JSONB relational fields for ID: {payload.resume_id}"
+            "message": "Resume processed and saved successfully!",
+            "resume_id": str(new_resume_id),
+            "filename": file.filename,
+            "uploaded_at": uploaded_at,
+            "extracted_data": agent_data # Returning to you so you can verify it worked
         }
         
     except HTTPException as he:
         raise he
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database update failure: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Pipeline failure: {str(e)}")
+
+# --- FALLBACK WEBHOOK ---
+@app.post("/resumes/agent-callback")
+async def agent_callback(payload: AgentCallbackPayload):
+    # This remains in case your friend wants to POST directly back to your DB asynchronously later.
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT id FROM resumes WHERE id = %s;", (payload.resume_id,))
+                if not cursor.fetchone():
+                    raise HTTPException(status_code=404, detail=f"resume_id '{payload.resume_id}' not found.")
+                
+                cursor.execute(
+                    """
+                    UPDATE resumes 
+                    SET experience = %s, skills = %s, education = %s, preferences = %s
+                    WHERE id = %s;
+                    """,
+                    (
+                        Json(payload.experience), Json(payload.skills),
+                        Json(payload.education), Json(payload.preferences) if payload.preferences else None,
+                        payload.resume_id
+                    )
+                )
+            conn.commit()
+        
+        return {"status": "success", "message": "Updated via callback"}
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Callback failure: {str(e)}")
 
 
 if __name__ == "__main__":
