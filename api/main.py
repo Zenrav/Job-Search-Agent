@@ -20,7 +20,7 @@ app = FastAPI(
 # --- CONFIGURATION ---
 # By default, this points to the MOCK endpoint running on your local FastAPI server.
 # When your friend is ready, change this to their URL (e.g., "http://their-ip:8001/parse")
-AGENT_API_URL = os.getenv("AGENT_API_URL", "http://127.0.0.1:8000/mock-agent")
+AGENT_API_URL = os.getenv("AGENT_API_URL", "http://127.0.0.1:8000/extract-agent")
 
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "job_search_db"),
@@ -53,42 +53,8 @@ def read_root():
     return {"message": "Resume Parser Pipeline Running"}
 
 
-# --- TEMPORARY MOCK AGENT FOR TESTING ---
-@app.post("/mock-agent")
-async def mock_agent_parser(payload: AgentRequestPayload):
-    """
-    This simulates your friend's Agent API. 
-    It receives the text and returns a structured JSON payload.
-    """
-    # Print the first 100 characters to the console to prove we received it
-    print(f"Mock Agent received text: {payload.text[:100]}...") 
-    
-    # Return Dummy Data matching your database schema
-    return {
-        "experience": [
-            {
-                "company": "Tech Corp",
-                "role": "Software Engineer",
-                "years": "2021-2023",
-                "highlights": ["Built Python APIs", "Optimized PostgreSQL queries"]
-            }
-        ],
-        "skills": {
-            "languages": ["Python", "JavaScript", "SQL"],
-            "frameworks": ["FastAPI", "React"]
-        },
-        "education": [
-            {
-                "institution": "State University",
-                "degree": "B.S. Computer Science",
-                "grad_year": 2021
-            }
-        ],
-        "preferences": {
-            "remote": True,
-            "target_salary": 95000
-        }
-    }
+
+
 
 
 # --- MAIN PIPELINE: UPLOAD, EXTRACT, CALL AGENT, & SAVE ---
@@ -154,9 +120,9 @@ async def upload_and_extract_resume(user_id: UUID, file: UploadFile = File(...))
                     WHERE id = %s;
                     """,
                     (
-                        Json(agent_data.get("experience", [])),
+                        Json(agent_data.get("work_history", [])),
                         Json(agent_data.get("skills", {})),
-                        Json(agent_data.get("education", [])),
+                        Json(agent_data.get("education_history", [])),
                         Json(agent_data.get("preferences", {})),
                         new_resume_id
                     )
@@ -211,4 +177,4 @@ async def agent_callback(payload: AgentCallbackPayload):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True)
