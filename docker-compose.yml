@@ -1,6 +1,8 @@
 services:
+  # --- Persistent Shared Database Container ---
   postgres:
     image: postgres:15-alpine
+    container_name: job_search_postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -14,41 +16,33 @@ services:
       interval: 5s
       retries: 5
 
+  # --- Isolated Text Extraction Agent Container ---
+  extractor-agent:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: job_search_extractor
+    environment:
+      - PYTHONPATH=/app
+    ports: ["8005:8005"] 
+    env_file: .env
+    command: uvicorn agent.extractor:app --host 0.0.0.0 --port 8005
+
+  # --- Central API Gateway ---
   api:
-    build: ./api
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: job_search_api
     ports: ["8000:8000"]
     env_file: .env
+    environment:
+      - DB_HOST=postgres
+      - AGENT_API_URL=http://extractor-agent:8005/extract-agent
     depends_on:
       postgres: {condition: service_healthy}
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
-  job-search-mcp:
-    build: ./mcp-servers/job-search
-    ports: ["8001:8001"]
-    env_file: .env
-
-  poc-mcp:
-    build: ./mcp-servers/poc-finder
-    ports: ["8002:8002"]
-    env_file: .env
-
-  tracker-mcp:
-    build: ./mcp-servers/tracker
-    ports: ["8003:8003"]
-    env_file: .env
-    depends_on:
-      postgres: {condition: service_healthy}
-
-  ui:
-    build: ./ui
-    ports: ["3000:3000"]
-    depends_on: [api]
-
-  scheduler:
-    build: ./scheduler
-    env_file: .env
-    depends_on:
-      postgres: {condition: service_healthy}
+      extractor-agent: {condition: service_started}
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
   postgres_data:

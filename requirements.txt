@@ -1,49 +1,42 @@
 # ── Core API framework ──────────────────────────────────────────────────────
 fastapi
-uvicorn[standard]==0.30.6
-websockets==12.0
+uvicorn[standard]>=0.34,<1       # bumped from 0.30.6 — google-adk requires uvicorn>=0.34
+websockets>=13.0                 # Updated to satisfy google-genai requirements
 python-multipart==0.0.9          # for UploadFile support
-
 # ── Database ─────────────────────────────────────────────────────────────────
 sqlalchemy[asyncio]==2.0.35
 asyncpg==0.29.0                  # async Postgres driver
 alembic==1.13.2                  # schema migrations
 psycopg2-binary==2.9.9           # sync driver (used by Alembic)
-
 # ── MCP ──────────────────────────────────────────────────────────────────────
 mcp==1.0.0                       # Model Context Protocol SDK
-
 # ── Anthropic ────────────────────────────────────────────────────────────────
 anthropic==0.34.2
-
 # ── Resume / PDF handling ────────────────────────────────────────────────────
 pdfplumber==0.11.4               # extract text from uploaded PDFs
-weasyprint==62.3                 # markdown → PDF for resume output
-
-# ── Email sending ────────────────────────────────────────────────────────────
-sendgrid==6.11.0                 # SendGrid SDK (free tier available)
-aiosmtplib==3.0.1                # raw async SMTP alternative
-
+pymupdf                          # provides 'fitz' module for PDF processing
+weasyprint==62.3                 # markdown → PDF — needs system Pango/Cairo/GDK-PixBuf in Dockerfile, not just pip
+# ── Email sending (Gmail API, gmail.send scope only) ─────────────────────────
+google-api-python-client>=2.150.0
+google-auth-oauthlib>=1.2.1
+google-auth-httplib2>=0.2.0
 # ── Scheduler ────────────────────────────────────────────────────────────────
 apscheduler==3.10.4              # daily follow-up cron job
-
 # ── HTTP client (for job discovery, POC search) ──────────────────────────────
-httpx==0.27.2                    # async HTTP client used throughout
-
+httpx>=0.28.1,<1.0.0             # Updated to a safe overlap range for mcp, anthropic, and google-genai
 # ── Data validation ──────────────────────────────────────────────────────────
-pydantic==2.9.1                  # FastAPI uses this for request/response models
-pydantic-settings==2.5.2         # load config from .env
-
+pydantic>=2.12.0,<3.0.0          # Satisfies google-adk's strict lower bound
+pydantic-settings>=2.5.2         # load config from .env
 # ── Utilities ────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1             # load .env in dev
 python-jose[cryptography]==3.3.0 # JWT tokens (if you add auth later)
-diff-match-patch==20230430       # resume diff computation
-
+diff-match-patch==20230430       # resume diff computation — only needed if resume tailoring/output is still in scope
 # ── Dev / testing ────────────────────────────────────────────────────────────
 pytest==8.3.3
 pytest-asyncio==0.24.0
 ruff==0.6.9                      # linting
 black==24.8.0                    # formatting
-
-
+# ── Google GenAI & Agent Framework ───────────────────────────────────────────
 google-genai
+google-adk==2.3.0                # provides 'google.adk' framework inside container
+litellm

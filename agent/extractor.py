@@ -10,7 +10,6 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import InMemoryRunner
 from pydantic import BaseModel, Field
 import uvicorn
-
 load_dotenv(override=True)
 
 app = FastAPI()
@@ -132,7 +131,6 @@ async def extract_resume_data(payload: ResumePayload):
                 f"Use your extraction tool to pull everything out of this text:\n{payload.text}",
                 quiet=True,
             )
-
             for event in events:
                 for fr in event.get_function_responses():
                     if fr.name == "extraction" and fr.response:
@@ -167,4 +165,4 @@ async def extract_resume_data(payload: ResumePayload):
             )
 
 if __name__ == "__main__":
-    uvicorn.run("extractor:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("extractor:app", host="127.0.0.1", port=8005, reload=True)

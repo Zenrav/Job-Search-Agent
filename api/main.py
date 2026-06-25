@@ -21,7 +21,7 @@ app = FastAPI(
 # --- CONFIGURATION ---
 # By default, this points to the MOCK endpoint running on your local FastAPI server.
 # When your friend is ready, change this to their URL (e.g., "http://their-ip:8001/parse")
-AGENT_API_URL = os.getenv("AGENT_API_URL", "http://127.0.0.1:8000/extract-agent")
+AGENT_API_URL = os.getenv("AGENT_API_URL", "http://extractor-agent:8005/extract-agent")
 
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "job_search_db"),
@@ -53,11 +53,6 @@ class AgentRequestPayload(BaseModel):
 def read_root():
     return {"message": "Resume Parser Pipeline Running"}
 
-
-
-
-
-
 # --- MAIN PIPELINE: UPLOAD, EXTRACT, CALL AGENT, & SAVE ---
 @app.post("/resumes/upload")
 async def upload_and_extract_resume(file: UploadFile = File(...)):
@@ -87,6 +82,8 @@ async def upload_and_extract_resume(file: UploadFile = File(...)):
                 auto_user_id = cursor.fetchone()[0]
                 
                 # Insert Resume tracking row linked to our new auto-generated user
+
+
                 cursor.execute(
                     """
                     INSERT INTO resumes (user_id, filename)
@@ -115,6 +112,7 @@ async def upload_and_extract_resume(file: UploadFile = File(...)):
             except httpx.RequestError as e:
                 raise HTTPException(status_code=503, detail=f"Agent API unreachable: {str(e)}")
 
+        print("UPDATE DB!")   
         # 4. Unpack the JSON and update database
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
@@ -136,8 +134,9 @@ async def upload_and_extract_resume(file: UploadFile = File(...)):
                         new_resume_id
                     )
                 )
+                
             conn.commit() # Commit the update
-
+            print("Updated!")
         return {
             "message": "Resume processed and saved successfully!",
             "resume_id": str(new_resume_id),
@@ -186,4 +185,4 @@ async def agent_callback(payload: AgentCallbackPayload):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

@@ -1,0 +1,31 @@
+# ── Version Control ─────────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ── Python & Environments ───────────────────────────────────────────────────
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.black/
+
+# ── Local Configurations & Secrets ──────────────────────────────────────────
+.env
+*.local
+.env.*
+
+# ── Docker & Local Database Artifacts ───────────────────────────────────────
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+postgres_data/    # Or whatever your local PG volume folder is named
+
+# ── OS & IDE Caches ─────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
