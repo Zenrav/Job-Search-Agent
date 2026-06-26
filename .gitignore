@@ -2,7 +2,8 @@
 .env
 .env.local
 .vscode/
-
+.cursor/mcp.json
+.cursor/
 # Python
 __pycache__/
 *.pyc
@@ -25,3 +26,8 @@ build/
 # OS generic
 .DS_Store
 Thumbs.db
+
+agent/__init__.py
+alembic/
+api/__init__.py
+migrations/

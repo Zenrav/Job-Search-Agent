@@ -1,6 +1,8 @@
 # ── Version Control ─────────────────────────────────────────────────────────
 .git
 .gitignore
+.cursor/mcp.json
+.cursor/
 
 # ── Python & Environments ───────────────────────────────────────────────────
 venv/

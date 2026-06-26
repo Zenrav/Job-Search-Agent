@@ -67,7 +67,6 @@ CREATE TABLE public.jobs (
     company text,
     location text,
     jd_url text,
-    jd_text text,
     source text,
     match_score double precision,
     found_at timestamp with time zone DEFAULT now()
