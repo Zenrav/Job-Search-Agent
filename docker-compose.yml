@@ -26,6 +26,8 @@ services:
       - PYTHONPATH=/app
     ports: ["8005:8005"] 
     env_file: .env
+    volumes:
+      - .:/app  # 👈 Added: Syncs code variations to the extractor agent instantly
     command: uvicorn agent.extractor:app --host 0.0.0.0 --port 8005
 
   # --- Central API Gateway ---
@@ -39,6 +41,8 @@ services:
     environment:
       - DB_HOST=postgres
       - AGENT_API_URL=http://extractor-agent:8005/extract-agent
+    volumes:
+      - .:/app  # 👈 Added: Syncs code variations to your API server instantly
     depends_on:
       postgres: {condition: service_healthy}
       extractor-agent: {condition: service_started}

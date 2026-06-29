@@ -31,3 +31,10 @@ agent/__init__.py
 alembic/
 api/__init__.py
 migrations/
+
+
+# Ignore generated Excel sheets
+*.xlsx
+# Ignore LibreOffice/Excel temporary lock files
+.~lock.*
+

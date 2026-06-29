@@ -9,9 +9,10 @@ asyncpg==0.29.0                  # async Postgres driver
 alembic==1.13.2                  # schema migrations
 psycopg2-binary==2.9.9           # sync driver (used by Alembic)
 # ── MCP ──────────────────────────────────────────────────────────────────────
-mcp==1.0.0                       # Model Context Protocol SDK
+mcp==1.28.0                      # bumped from 0.1.2, which never existed on PyPI
+google-adk[mcp]                  # pulls google-adk 2.3.0 either way, confirmed via resolver
 # ── Anthropic ────────────────────────────────────────────────────────────────
-anthropic==0.34.2
+# anthropic==0.34.2              # RE-ADD if any code calls `from anthropic import ...` directly
 # ── Resume / PDF handling ────────────────────────────────────────────────────
 pdfplumber==0.11.4               # extract text from uploaded PDFs
 pymupdf                          # provides 'fitz' module for PDF processing
@@ -38,5 +39,4 @@ ruff==0.6.9                      # linting
 black==24.8.0                    # formatting
 # ── Google GenAI & Agent Framework ───────────────────────────────────────────
 google-genai
-google-adk==2.3.0                # provides 'google.adk' framework inside container
 litellm
