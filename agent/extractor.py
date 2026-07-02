@@ -8,8 +8,9 @@ from dotenv import load_dotenv
 from google.adk import Agent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import InMemoryRunner
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 import uvicorn
+
 load_dotenv(override=True)
 
 app = FastAPI()
@@ -63,41 +64,51 @@ class ResumePayload(BaseModel):
 
 
 # ==========================================
-# TOOL FUNCTION
+# FIXED TOOL FUNCTION
 # ==========================================
 def extraction(text: str) -> dict:
     """
     Analyzes the entire raw resume text and extracts structural profiles 
     using the assigned LiteLLM back-end model wrapper.
     """
+    print(f"Extracting skills, work history, and education from resume text: {text}")
+    # Grab the exact JSON schema definition to feed to the prompt safely
+    schema_dump = json.dumps(FullResumeExtraction.model_json_schema(), indent=2)
+
     system_instruction = (
         "You are an expert HR parsing engine. Analyze the provided resume text and "
-        "comprehensively extract all professional information into the requested structured JSON format.\n\n"
+        "comprehensively extract all professional information into a strict JSON object.\n\n"
+        f"You MUST format your output according to this JSON Schema:\n{schema_dump}\n\n"
         "Guidelines:\n"
         "1. Do not skip or truncate any details. Ensure all bullet points under experience are completely preserved.\n"
         "2. Parse dates cleanly into standard readable text.\n"
-        "3. Only extract values explicitly supported by the text. Avoid hallucinations."
+        "3. Only extract values explicitly supported by the text. Avoid hallucinations.\n"
+        "4. Output ONLY valid, raw JSON. Do not wrap it in tool call syntax or markdown blocks."
     )
     
     user_prompt = f"RESUME TEXT: \n{text}"
 
+    # Use native json_object mode. This guarantees LiteLLM won't inject synthetic tools!
     response = litellm.completion(
         model=EXTRACTION_MODEL,
         messages=[
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": user_prompt},
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "FullResumeExtraction",
-                "schema": FullResumeExtraction.model_json_schema(),
-            },
-        },
+        response_format={"type": "json_object"},
         temperature=0.1,
     )
 
-    return json.loads(response.choices[0].message.content)
+    raw_content = response.choices[0].message.content
+    
+    try:
+        # Validate against the Pydantic schema locally before returning it to the Agent
+        validated_data = FullResumeExtraction.model_validate_json(raw_content)
+        return validated_data.model_dump()
+    except (ValidationError, json.JSONDecodeError) as e:
+        # If it fails, fall back to a raw dict parsing so the script doesn't explode
+        return json.loads(raw_content)
+
 
 # ==========================================
 # AGENT DECLARATION
@@ -115,54 +126,32 @@ extract_agent = Agent(
 )
 
 
-
 @app.post("/extract-agent", response_model=FullResumeExtraction)
 async def extract_resume_data(payload: ResumePayload):
     """
-    Accepts raw text from parsed document payloads and pipelines it through
-    the ADK Agent + Groq Llama-3.3 model engine, returning a clean JSON structure.
+    Accepts raw text from parsed document payloads and directly processes it
+    via Groq Llama-3.3 native JSON mode, completely avoiding agent tool-call bugs.
     """
     if not payload.text.strip():
         raise HTTPException(status_code=400, detail="Provided resume text content cannot be blank.")
 
-    async with InMemoryRunner(agent=extract_agent) as runner:
-        try:
-            events = await runner.run_debug(
-                f"Use your extraction tool to pull everything out of this text:\n{payload.text}",
-                quiet=True,
-            )
-            for event in events:
-                for fr in event.get_function_responses():
-                    if fr.name == "extraction" and fr.response:
-                        return FullResumeExtraction.model_validate(fr.response)
+    try:
+        # 🚀 1. Call your extraction function directly (bypassing the ADK Agent runner)
+        extracted_dict = extraction(payload.text)
+        
+        # 🚀 2. Validate it against your Pydantic schema and return it
+        return FullResumeExtraction.model_validate(extracted_dict)
 
-            for event in reversed(events):
-                if not event.content or not event.content.parts:
-                    continue
-                for part in event.content.parts:
-                    if not part.text:
-                        continue
-                    text_content = part.text.strip()
-                    if "```json" in text_content:
-                        text_content = text_content.split("```json")[1].split("```")[0].strip()
-                    elif "```" in text_content:
-                        text_content = text_content.split("```")[1].split("```")[0].strip()
-                    try:
-                        return FullResumeExtraction.model_validate_json(text_content)
-                    except Exception:
-                        continue
-
-            raise HTTPException(
-                status_code=502,
-                detail="The agent framework failed to produce a cleanly structured JSON response.",
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Internal agent pipeline execution crash: {str(e)}",
-            )
+    except ValidationError as ve:
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM output did not strictly match the expected resume schema: {str(ve)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal extraction pipeline crash: {str(e)}",
+        )
 
 if __name__ == "__main__":
     uvicorn.run("extractor:app", host="127.0.0.1", port=8005, reload=True)
